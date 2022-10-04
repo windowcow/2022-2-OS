@@ -29,6 +29,7 @@ class Scheduler:
         self.queue1 = []
         self.queue2 = []
         
+        self.time = -1
         self.time_quantum = 0 # time_quantum이 2면 queue0, 4면 queue1, sys.maxint 면 queue2다.
         self.remaining_time_quantum = 0
         
@@ -42,8 +43,6 @@ class Scheduler:
             else:
                 print(f"Process{i} has invalid init_queue_number")
                 exit()
-        self.queue0.sort(key=lambda x: x.arrival_time)
-        self.queue1.sort(key=lambda x: x.arrival_time)
         
         # q2를 [[cpu burst, io burst] ...] 로 만든다
         for i in temp_processes:
@@ -54,6 +53,8 @@ class Scheduler:
         
         
         # 여기서 q2_SRTF를 정렬해야함!
+        self.sort_q0()
+        self.sort_q1()
         self.sort_q2()
         
         
@@ -67,17 +68,36 @@ class Scheduler:
         # 이제 모든 process들이 ready_queue에 들어있고 burst가 시작된다.
     # burst time은 1 단위로 계산한다.
         
-    def start_running():
-        self.in_running.append(self.queue0.pop(0))
-        self.time_quantum = 2
+    def start_running(self):
+        temp_queue = []
+        print(self.queue0)
+        print(self.queue1)
+        print(self.queue2)
+        try:
+            temp_queue.append(self.queue0.pop())
+            self.time_quantum = 2
+        except:
+            try:
+                temp_queue.append(self.queue1.pop())
+                self.time_quantum = 4
+            except:
+                try:
+                    temp_queue.append(self.queue2.pop())
+                    self.time_quantum = sys.maxint
+                except:
+                    pass
+        
+            
+        self.in_running.append(temp_queue[0])
         self.remaining_time_quantum = self.time_quantum
         
         while self.num_of_remaining_processes() > 0:
-            things_to_be_done_in_next_1_turn()
+            self.main_loop()
     
+    def get_next_process_to_run(self):
+        pass
     
-            
-    def things_to_be_done_in_next_1_turn():
+    def main_loop(self):
         # 1. 현재 running process 처리하기
         # 2. asleep processes 처리
         # 3. ready processes 관리
@@ -89,34 +109,118 @@ class Scheduler:
         
         #### 여기에서 시간이 1 흐른다고 가정 ####
         # 1. in running에서
+        self.time += 1
+        print(self.in_running[0].pid, self.time)
         self.in_running[0].burst_cycles[0][1] -= 1
         self.remaining_time_quantum -= 1
+        original_process = self.in_running[0]
         
         if self.in_running[0].burst_cycles[0][1] == 0: # 해당 cpu burst cycle이 끝난 경우. (remaining time quantum이 있는데 끝난 경우를 의미!)
             self.in_running[0].burst_cycles.pop(0) # burst cycle 하나를 없앤다. 
             if self.in_running[0].burst_cycles == []:
                 self.terminated.append(self.in_running.pop(0)) # burst cycle이 남아있지 않은 경우에 terminated로 보낸다.
             else:
-                self.in_asleep.append(self.in_running.pop(0)) # burst cycle이 남아있는 경우에 asleep로 보낸다. (다음 burst cycle은 io_burst이기 때문임)
+                if self.time_quantum == 2:
+                    temp_destination = self.queue0
+                elif self.time_quantum == 4:
+                    temp_destination = self.queue0
+                elif self.time_quantum == sys.maxint:
+                    temp_destination = self.queue1
+                
+                self.in_asleep.append([self.in_running.pop(0), temp_destination]) # burst cycle이 남아있는 경우에 asleep로 보낸다. (다음 burst cycle은 io_burst이기 때문임)
+                #근데 이 경우에는 원래 어디로 가야하는지도 정보를 보내야 한다.
         else: # 해당 cpu burst cycle이 끝나지 않은 경우.
             if self.remaining_time_quantum == 0: # 근데 남은 time quantum이 0인 경우(남은 타임 퀀텀을 다 쓴 경우임. Qi+1로 보냄)
                 if self.time_quantum == 2: # queue0에서 온 프로세스를 의미
                     self.queue1.append(self.in_running.pop(0)) # running에서 빼고 queue1에 넣는다.
-                else if: self.time_quantum == 4: # queue1에서 온 프로세스를 의미
+                elif self.time_quantum == 4: # queue1에서 온 프로세스를 의미
                     self.queue2.append(self.in_running.pop(0)) # running에서 빼고 queue2에 넣는다.
                 else: # queue2에서 온 프로세스를 의미
                     self.queue2.append(self.in_running.pop(0)) # running에서 빼고 queue2에 넣는다.
-            else: # 남은 타임 퀀텀을 쓰지도 않고 cpu burst cycle도 끝나지 않은 경우. 그냥 다음 턴으로 넘어간다.
-                pass
-        
+            else: # 남은 타임 퀀텀을 쓰지도 않고 cpu burst cycle도 끝나지 않은 경우. preemption을 고려해야한다. 이 경우 원래 있던 큐로 넣는다고 가정.
+                if self.time_quantum == 2:
+                    if self.queue0 != []:
+                        if self.queue0[0].arrival_time < original_process.arrival_time: 
+                            self.queue0.append(self.in_running.pop(0))
+                            self.in_running.append(self.queue0.pop(0))
+                            return
+                
+                if self.time_quantum == 4:
+                    if self.queue0 != []:
+                        self.queue0.append(self.in_running.pop(0)) # 이 두 줄은 그냥 서로 바꾸는 의미다. 
+                        self.in_running.append(self.queue0.pop(0))
+                        return
+                            
+                    if self.queue1 != []:
+                        if self.queue1[0].arrival_time < original_process.arrival_time: 
+                            self.queue1.append(self.in_running.pop(0))
+                            self.in_running.append(self.queue1.pop(0))
+                            return
+                
+                if self.time_quantum == sys.maxint:
+                    if self.queue0 != []:
+                        self.queue0.append(self.in_running.pop(0)) # 이 두 줄은 그냥 서로 바꾸는 의미다. 
+                        self.in_running.append(self.queue0.pop(0))
+                        return
+                            
+                    if self.queue1 != []:
+                        self.queue1.append(self.in_running.pop(0)) # 이 두 줄은 그냥 서로 바꾸는 의미다. 
+                        self.in_running.append(self.queue1.pop(0))
+                        return
+                        
+                    if self.queue2 != []:
+                        if self.queue2[0].remaining_time < original_process.remaining_time: 
+                            self.queue2.append(self.in_running.pop(0))
+                            self.in_running.append(self.queue2.pop(0))
+                            return
+                
+                target_process = self.in_running[0]
+                original_process = self.in_running[0]
+                self.sort_q1()
+                
+                if target_process != original_process:
+                    
+                    self.in_running.append(target_process)
+                    return
+                
+                # 2번쨰 preemption 조건
+                for process in self.queue1:
+                    if process.arrival_time <= target_process.arrival_time:
+                        if self.time_quantum == 2:
+                            self.queue0.append(self.in_running.pop(0))
+                        elif self.time_quantum == 4:
+                            self.queue1.append(self.in_running.pop(0))
+                        else:
+                            self.queue2.append(self.in_running.pop(0))
+                        target_process = process
+                if target_process != original_process:
+                    self.in_running.append(target_process)
+                    return
+                
+                # 3번째 preemption 조건
+                for process in self.queue2:
+                    if process.arrival_time <= target_process.arrival_time:
+                        if self.time_quantum == 2:
+                            self.queue0.append(self.in_running.pop(0))
+                        elif self.time_quantum == 4:
+                            self.queue1.append(self.in_running.pop(0))
+                        else:
+                            self.queue2.append(self.in_running.pop(0))
+                        target_process = process  
+                          
+                if target_process != original_process:
+                    self.in_running.append(target_process)
+                    return
+                
+                
         # 2. in asleep에서
-        for process in self.in_asleep:
+        for index, (process, destination) in enumerate(self.in_asleep):
             process.burst_cycles[0][1] -= 1
             # 남은 io burst 가 0인 경우에는 ready queue로 보낸다.
             if process.burst_cycles[0][1] == 0:
                 process.burst_cycles.pop(0)
-                self.in_asleep.remove(process)
-                self.in_running.append(process)
+                self.in_asleep.pop(index)
+                destination.append(process)
                 
         # 3. in ready 에서
         for process in self.queue0:
@@ -131,31 +235,17 @@ class Scheduler:
         
         
         
+    def sort_q0(self):
+        self.queue0.sort(key=lambda x: x.arrival_time)
         
-        
-        
-        
-            
-            
-            
-        
-        
-        # 1. running 상태의 process를 계속 running에 두거나(q2만 남고 조건 만족 경우), ready_queue 중 하나 / in_asleep 으로  옮긴다. -
-        # if self.time_quantum == sys.maxint:
-        #     for process in queue2:
-        #         pass
-            
-        
-        # 2. waiting 상태의 process의 waiting time을 1 증가 또는 남은 io_burst를 1 감소시킨다. / io_burst = 0이면 ready queue로 보낸다.
-        # 3. running이 비어있는 경우 ready queue에 있는 process 하나를 올려보낸다.
-            
-        
-        
-
+    def sort_q1(self):
+        self.queue1.sort(key=lambda x: x.arrival_time)
         
     def sort_q2(self):
         self.queue2.sort(key=lambda x: sum([int(i[1]) for i in x.burst_cycles if i[0]%2 == 0]))
         
+    def num_of_remaining_processes(self):
+        return len(self.queue0) + len(self.queue1) + len(self.queue2) + len(self.in_asleep) + len(self.in_running)
 
                 
 
@@ -178,7 +268,12 @@ class Process:
         return self.burst_cycles[0]
     
     def remaining_time(self):
-        pass
+        sum = 0
+        for i in self.burst_cycles:
+            if i[0] == 0:
+                sum += i[1]
+                
+        return sum
     
     def cpu_burst_time(self, burst_time: int):
         pass
@@ -201,4 +296,5 @@ input = f.readlines()
 f.close
 
 if __name__ == "__main__":
-    Scheduler(input)
+    scheduler = Scheduler(input)
+    scheduler.start_running()
