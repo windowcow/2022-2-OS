@@ -30,7 +30,7 @@ class Scheduler:
         self.queue2 = []
         
         self.time_quantum = 0 # time_quantum이 2면 queue0, 4면 queue1, sys.maxint 면 queue2다.
-        
+        self.remaining_time_quantum = 0
         
         for i in temp_processes:
             if i.init_queue == 0:
@@ -68,11 +68,14 @@ class Scheduler:
     # burst time은 1 단위로 계산한다.
         
     def start_running():
+        self.in_running.append(self.queue0.pop(0))
+        self.time_quantum = 2
+        self.remaining_time_quantum = self.time_quantum
+        
         while self.num_of_remaining_processes() > 0:
             things_to_be_done_in_next_1_turn()
     
-    def process_in_running(self):
-        return self.in_running[0] # 항상 안비어있음
+    
             
     def things_to_be_done_in_next_1_turn():
         # 1. 현재 running process 처리하기
@@ -83,18 +86,64 @@ class Scheduler:
         
         # 1. 현재 running process 처리하기
         # running 상태의 process의 burst time을 1 감소시킨다.  cpu_burst time = 0이면 burst_cycles.pop()을 하고 burst_cycles가 비어있으면 terminated로 보낸다.
-        self.process_in_running.next_burst_time() -= 1
-        if self.in_running[0][4][0][1] == 0:
-            self.in_running[0][4].pop(0)
-            if self.in_running[0][4] == []:
-                self.terminated.append(self.in_running[0])
-                self.in_running.pop(0)
+        
+        #### 여기에서 시간이 1 흐른다고 가정 ####
+        # 1. in running에서
+        self.in_running[0].burst_cycles[0][1] -= 1
+        self.remaining_time_quantum -= 1
+        
+        if self.in_running[0].burst_cycles[0][1] == 0: # 해당 cpu burst cycle이 끝난 경우. (remaining time quantum이 있는데 끝난 경우를 의미!)
+            self.in_running[0].burst_cycles.pop(0) # burst cycle 하나를 없앤다. 
+            if self.in_running[0].burst_cycles == []:
+                self.terminated.append(self.in_running.pop(0)) # burst cycle이 남아있지 않은 경우에 terminated로 보낸다.
+            else:
+                self.in_asleep.append(self.in_running.pop(0)) # burst cycle이 남아있는 경우에 asleep로 보낸다. (다음 burst cycle은 io_burst이기 때문임)
+        else: # 해당 cpu burst cycle이 끝나지 않은 경우.
+            if self.remaining_time_quantum == 0: # 근데 남은 time quantum이 0인 경우(남은 타임 퀀텀을 다 쓴 경우임. Qi+1로 보냄)
+                if self.time_quantum == 2: # queue0에서 온 프로세스를 의미
+                    self.queue1.append(self.in_running.pop(0)) # running에서 빼고 queue1에 넣는다.
+                else if: self.time_quantum == 4: # queue1에서 온 프로세스를 의미
+                    self.queue2.append(self.in_running.pop(0)) # running에서 빼고 queue2에 넣는다.
+                else: # queue2에서 온 프로세스를 의미
+                    self.queue2.append(self.in_running.pop(0)) # running에서 빼고 queue2에 넣는다.
+            else: # 남은 타임 퀀텀을 쓰지도 않고 cpu burst cycle도 끝나지 않은 경우. 그냥 다음 턴으로 넘어간다.
+                pass
+        
+        # 2. in asleep에서
+        for process in self.in_asleep:
+            process.burst_cycles[0][1] -= 1
+            # 남은 io burst 가 0인 경우에는 ready queue로 보낸다.
+            if process.burst_cycles[0][1] == 0:
+                process.burst_cycles.pop(0)
+                self.in_asleep.remove(process)
+                self.in_running.append(process)
+                
+        # 3. in ready 에서
+        for process in self.queue0:
+            process.waiting_time += 1
+        
+        for process in self.queue1:
+            process.waiting_time += 1
+        
+        for process in self.queue2:
+            process.waiting_time += 1
+        #### 여기에서 시간이 1 흐른다고 가정 #### END
+        
+        
+        
+        
+        
+        
+        
+            
+            
             
         
+        
         # 1. running 상태의 process를 계속 running에 두거나(q2만 남고 조건 만족 경우), ready_queue 중 하나 / in_asleep 으로  옮긴다. -
-        if self.time_quantum == sys.maxint:
-            for process in queue2:
-                pass
+        # if self.time_quantum == sys.maxint:
+        #     for process in queue2:
+        #         pass
             
         
         # 2. waiting 상태의 process의 waiting time을 1 증가 또는 남은 io_burst를 1 감소시킨다. / io_burst = 0이면 ready queue로 보낸다.
@@ -126,7 +175,7 @@ class Process:
         # cpu_burst_time이 0이면 끝난 프로세스다.
     
     def next_burst(self):
-        return self.burst_cycles
+        return self.burst_cycles[0]
     
     def remaining_time(self):
         pass
